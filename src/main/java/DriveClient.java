@@ -16,10 +16,9 @@ public class DriveClient {
     private final String dir = "localhost";
     private Path currentDir;
     private Path rootDir;
-    private DataOutputStream dos;
-    private DataInputStream dis;
     private ObjectInputStream ois;
     private ObjectOutputStream oos;
+    //private Socket socketcon;
     private Path retorno;
 
     public DriveClient() throws IOException, ClassNotFoundException {
@@ -27,13 +26,13 @@ public class DriveClient {
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
         System.out.println("Iniciando el cliente");
         Socket socketcon = new Socket(dir, port);
-        System.out.println("Conexion establecida con el servidor");
-        dis = new DataInputStream(socketcon.getInputStream());
-        dos = new DataOutputStream(socketcon.getOutputStream());
-        ois = new ObjectInputStream(socketcon.getInputStream());
         oos = new ObjectOutputStream(socketcon.getOutputStream());
+        oos.flush();
+        ois = new ObjectInputStream(socketcon.getInputStream());
+        System.out.println("Conexion establecida con el servidor");
+
         while(true) {
-            currentDir = Paths.get(dis.readUTF());
+            currentDir = Paths.get(receiveMessage());
             System.out.print("$" + currentDir + " > ");
             String action = br.readLine();
             if(action.equals("ls")) listFiles(action);
@@ -46,55 +45,47 @@ public class DriveClient {
             else if(action.equals("cls")) clearScreen(action);
             else if(action.equals("exit")) {
                 exitProgram();
-                dos.close();
-                dis.close();
-                ois.close();
                 oos.close();
+                ois.close();
                 socketcon.close();
                 break;
             }else{
                 System.out.println("Comando incorrecto");
-                dos.writeUTF(action);
-                dos.flush();
+                sendMessage(action);
             }
         }
     }
 
     public void changeDir(String action) throws IOException {
-        dos.writeUTF(action);
-        dos.flush();
-        String response = dis.readUTF();
+        sendMessage(action);
+        String response = receiveMessage();
         if(!response.equals("ok")){
             System.out.println(response);
         }
     }
 
     public void clearScreen(String action) throws IOException {
-        dos.writeUTF(action);
-        dos.flush();
+        sendMessage(action);
     }
 
     public void createDir(String action) throws IOException {
-        dos.writeUTF(action);
-        dos.flush();
-        String response = dis.readUTF();
+        sendMessage(action);
+        String response = receiveMessage();
         System.out.println(response);
     }
 
     public void backDir(String action) throws IOException {
-        dos.writeUTF(action);
-        dos.flush();
+        sendMessage(action);
     }
 
     public void uploadFiles(String action) throws IOException {
-        dos.writeUTF(action);
-        dos.flush();
+        sendMessage(action);
         JFileChooser fileChooser = new JFileChooser();
         fileChooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        fileChooser.setCurrentDirectory(new File("/home/robcb/PruebaDrive/"));
         int returnVal = fileChooser.showOpenDialog(null);
         if (returnVal == JFileChooser.APPROVE_OPTION) {
-            dos.writeBoolean(true);
-            dos.flush();
+            sendBoolean(true);
             File file = fileChooser.getSelectedFile();
             if(!file.isDirectory()){
                 sendFile(file, "NODIR");
@@ -105,55 +96,39 @@ public class DriveClient {
                 ZipUtil.pack(file, new File(zip_name));
                 sendFile(new File(zip_name), "DIR-ZIP");
                 new File(zip_name).delete();
-                dis.readUTF();
+                //receiveMessage();
             }
         } else {
             System.out.println("Open command cancelled by user.");
-            dos.writeBoolean(false);
-            dos.flush();
+            sendBoolean(false);
         }
-    }
-
-    public void sendDir(File dir, Path p) throws IOException {
-        createDir("mkdir "+dir.getName());
-        changeDir("cd "+ dir.getName());
-        for(File f: dir.listFiles()) {
-            if(f.isDirectory()){
-                sendDir(f, Paths.get(p.toString(), f.getName()));
-            }else{
-            }
-        }
-        backDir("cd ..");
     }
 
     public void listFiles(String action) throws IOException, ClassNotFoundException {
-        dos.writeUTF(action);
-        dos.flush();
-        ArrayList<String> files = (ArrayList<String>) ois.readObject();
+        sendMessage(action);
+        ArrayList<String> files = (ArrayList<String>) receiveObject();
         for (String s : files) {
             System.out.println(s);
         }
     }
 
     public void exitProgram() throws IOException {
-        dos.writeUTF("exit");
-        dos.flush();
+        sendMessage("exit");
     }
 
     public void downloadFiles(String action) throws IOException, ClassNotFoundException {
-        dos.writeUTF(action);
-        dos.flush();
-        String response = dis.readUTF();
+        sendMessage(action);
+        String response = receiveMessage();
         if (!response.equals("404")){
             JFileChooser ubicacionChooser = new JFileChooser();
             ubicacionChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            ubicacionChooser.setCurrentDirectory(new File("/home/robcb/PruebaDrive/"));
             int returnVal = ubicacionChooser.showOpenDialog(null);
             if (returnVal == JFileChooser.APPROVE_OPTION){
-                dos.writeBoolean(true);
-                dos.flush();
+                sendBoolean(true);
                 Path downloadPath = Paths.get(ubicacionChooser.getSelectedFile().getAbsolutePath());
                 if(response.equals("dirok")){
-                    Archivo porDescargar = (Archivo) ois.readObject();
+                    Archivo porDescargar = (Archivo) receiveObject();
                     System.out.println("Descargando directorio en " + downloadPath.toString());
                     System.out.println("Recibiendo una carpeta");
                     Path downloadFilePath = Paths.get(downloadPath.toString(), porDescargar.getNombre());
@@ -166,22 +141,20 @@ public class DriveClient {
                     eliminar.delete();
                 }
                 if(response.equals("fileok")){
-                    Archivo porDescargar = (Archivo) ois.readObject();
+                    Archivo porDescargar = (Archivo) receiveObject();
                     Path downloadFilePath = Paths.get(downloadPath.toString(), porDescargar.getNombre());
                     receiveFile(porDescargar, downloadFilePath.toString());
                 }
 
             }else{
-                dos.writeBoolean(false);
-                dos.flush();
+                sendBoolean(false);
             }
         }
     }
 
     public void deleteFiles(String action) throws IOException {
-        dos.writeUTF(action);
-        dos.flush();
-        String response = dis.readUTF();
+        sendMessage(action);
+        String response = receiveMessage();
         System.out.println(response);
     }
 
@@ -191,40 +164,109 @@ public class DriveClient {
         porEnviar.setSize(fileDownload.length());
         if(type.equals("DIR-ZIP")) porEnviar.setExt("DIR");
         else porEnviar.setExt(FilenameUtils.getExtension(fileDownload.getName()).toUpperCase(Locale.ROOT));
+
+        sendObject(porEnviar);
+
         DataInputStream fileInput = new DataInputStream(new FileInputStream(fileDownload.getAbsolutePath()));
-        oos.writeObject(porEnviar);
-        oos.flush();
-        long enviado = 0;
-        int parte=0, porcentaje=0;
-        while (enviado<porEnviar.getSize()){
-            byte[] bytes = new byte[1500];
-            parte = fileInput.read(bytes);
-            dos.write(bytes, 0, parte);
-            dos.flush();
-            enviado = enviado + parte;
-            porcentaje = (int)((enviado*100)/porEnviar.getSize());
-            System.out.println("\rEnviado el "+porcentaje+" % del archivo");
+
+
+        long tam = porEnviar.getSize();
+        long enviados = 0;
+        int l;
+
+        while (enviados<tam){
+            byte[] b = new byte[1500];
+            l = fileInput.read(b);
+            oos.write(b, 0, l);
+            oos.flush();
+            enviados += l;
+
         }
+
+        fileInput.close();
+
+        System.out.println("Archivo enviado");
     }
 
     public void receiveFile(Archivo porRecibir, String ruta) throws IOException, ClassNotFoundException {
         System.out.println("Recibiendo "+ porRecibir.getNombre() + " de tamanio "+ porRecibir.getSize());
         DataOutputStream fileout = new DataOutputStream(new FileOutputStream(ruta));
+
         long recibido = 0;
-        int parte = 0, porcentaje = 0;
-        while (recibido<porRecibir.getSize()){
-            byte[] bytes = new byte[1500];
-            parte = dis.read(bytes);
-            fileout.write(bytes, 0, parte);
+        int l;
+        long tam = porRecibir.getSize();
+
+        while(recibido<tam){
+            byte[] b = new byte[1500];
+            l = ois.read(b, 0, b.length);
+            fileout.write(b, 0, l);
             fileout.flush();
-            recibido = recibido+parte;
-            porcentaje = (int)((recibido*100)/porRecibir.getSize());
-            System.out.println("Recibido el "+ porcentaje +" % del archivo");
+            recibido += l;
         }
-        System.out.println("Deje de recibir");
-        dos.writeUTF("Recibido");
-        dos.flush();
+
         fileout.close();
+        System.out.println("Deje de recibir");
+    }
+
+    public void sendMessage(String mes){
+        try {
+            oos.writeUTF(mes);
+            oos.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public String receiveMessage(){
+        try {
+            String res = ois.readUTF();
+            return res;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public void sendObject(Object toSend){
+        try {
+            oos.writeObject(toSend);
+            oos.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public Object receiveObject(){
+        try {
+            Object rec = ois.readObject();
+            return rec;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public boolean receiveBoolean(){
+        try {
+            boolean res = ois.readBoolean();
+            return res;
+        } catch (IOException e) {
+
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public void sendBoolean(boolean bool){
+        try {
+            oos.writeBoolean(bool);
+            oos.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public static void main(String[] args) throws IOException, ClassNotFoundException {
